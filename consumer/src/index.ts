@@ -147,6 +147,25 @@ function scheduleMinioBatch(): void {
 }
 
 // ── InfluxDB point builder ────────────────────────────────────────────────────
+/** `search_keywords` as Influx tag — bounded length, no control chars (line protocol safe). */
+function tagSearchKeywords(raw: unknown): string {
+  let s = String(raw ?? '').trim().replace(/\s+/g, ' ');
+  if (!s) return 'unknown';
+  s = s.replace(/[\u0000-\u001f\u007f]/g, '');
+  if (!s) return 'unknown';
+  const max = 128;
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+/** `campaign_id`, `ad_id`, etc. — Influx tags (brief dimensions); capped to bound cardinality. */
+function tagId(raw: unknown, max = 256): string {
+  let s = String(raw ?? '').trim();
+  if (!s) return 'unknown';
+  s = s.replace(/[\u0000-\u001f\u007f]/g, '');
+  if (!s) return 'unknown';
+  return s.length > max ? s.slice(0, max) : s;
+}
+
 // resolvedAdvertiserId is pre-fetched from Redis for conversions
 function buildPoint(queue: QueueName, payload: Payload, now: Date, resolvedAdvertiserId?: string): Point {
   const point = new Point('events')
@@ -158,19 +177,18 @@ function buildPoint(queue: QueueName, payload: Payload, now: Date, resolvedAdver
     const ads = payload.ads as Array<Record<string, Record<string, string>>> | undefined;
     const advertiser_id = String(ads?.[0]?.advertiser?.advertiser_id ?? 'unknown');
     point
-      .tag('state',         String(payload.state ?? 'unknown'))
-      .tag('advertiser_id', advertiser_id)
-      // campaign_id and ad_id moved to fields — they have 50-100 unique values
-      // and would create 375k series as tags, causing InfluxDB OOM at 10k rps
-      .stringField('campaign_id', String(ads?.[0]?.campaign?.campaign_id ?? 'unknown'))
-      .stringField('ad_id',       String(ads?.[0]?.ad?.ad_id ?? 'unknown'));
+      .tag('state',            String(payload.state ?? 'unknown'))
+      .tag('search_keywords',  tagSearchKeywords(payload.search_keywords))
+      .tag('advertiser_id',    advertiser_id)
+      .tag('campaign_id',      tagId(ads?.[0]?.campaign?.campaign_id))
+      .tag('ad_id',            tagId(ads?.[0]?.ad?.ad_id));
   } else if (queue === 'clicks') {
     const user = payload.user_info as Record<string, string>  | undefined;
     const ad   = payload.clicked_ad as Record<string, unknown> | undefined;
     const ttc  = typeof ad?.time_to_click === 'number' ? ad.time_to_click : 0;
     point
       .tag('state', String(user?.state ?? 'unknown'))
-      .stringField('ad_id', String(ad?.ad_id ?? 'unknown'))
+      .tag('ad_id', tagId(ad?.ad_id))
       .floatField('time_to_click', ttc);
   } else {
     const user  = payload.user_info   as Record<string, string>  | undefined;

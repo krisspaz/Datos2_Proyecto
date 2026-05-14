@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Enunciado del curso (si se copia aquí)
+Datos II_ 3er Proyecto.md
 .env
 *.log
 .DS_Store

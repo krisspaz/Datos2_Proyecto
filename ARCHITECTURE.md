@@ -91,6 +91,7 @@
 
 - **Why MinIO over LocalStack S3**: MinIO is the S3-compatible object store that runs in a single container with zero AWS credentials. The API (`minio.putObject`) is wire-compatible with the AWS SDK, making a future migration to S3 a one-line config change.
 - **Partition contract**: `events/{event_type}/year=YYYY/month=MM/day=DD/hour=HH/` mirrors AWS Athena/Glue partition pruning conventions. The API exposes `GET /api/storage/count` and `GET /api/storage/list` which read this structure directly, satisfying the requirement that partitions be queryable, not decorative.
+- **Lifecycle (ILM)**: On `docker compose up`, the `minio-init` service runs `minio/init.sh`, which applies `mc ilm rule add --prefix "events/" … --expire-days 90` to `${MINIO_BUCKET}` so raw JSON under `events/` is deleted automatically after 90 days (same behavior you would encode in an S3 `LifecycleConfiguration`).
 
 ---
 
@@ -99,7 +100,7 @@
 | Tier | Retention | Rationale |
 |---|---|---|
 | InfluxDB | 30 days | Dashboards query ≤ 24h windows; 30 days allows trend analysis without unbounded growth |
-| MinIO (raw events) | 90 days (lifecycle policy) | Audit trail and re-processing; cold storage after 30 days via MinIO ILM |
+| MinIO (raw events) | 90 days (ILM expiration on `events/`) | Enforced in Docker by `minio/init.sh` (`mc ilm rule add --expire-days 90`). On AWS S3 you would often add a **transition** rule (e.g. Standard → Glacier after 30d) *before* the 90d delete; that tiering step is not configured in this single-node MinIO dev stack—only expiry is. |
 | DLQ | Until manual review | Failed events must not be silently discarded; ops team reviews and replays |
 
 ---
