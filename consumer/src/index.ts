@@ -24,7 +24,7 @@ const redis = new Redis(process.env.REDIS_URL ?? 'redis://redis:6379', {
   connectTimeout: 5000,
   commandTimeout: 100,
 });
-redis.on('error', (e) => console.error('[redis] error:', e.message));
+redis.on('error', (e: Error) => console.error('[redis] error:', e.message));
 
 // ── Per-minute aggregator ─────────────────────────────────────────────────────
 const aggCounts: Record<QueueName, number> = { impressions: 0, clicks: 0, conversions: 0 };
@@ -307,9 +307,9 @@ async function setupQueues(ch: Channel, conn: any): Promise<void> {
     const qCh: Channel = await conn.createChannel();
     qCh.prefetch(PREFETCH_PER_Q);
 
-    qCh.consume(q, (msg) => {
+    qCh.consume(q, (msg: Message | null) => {
       if (msg === null) return;
-      processMessage(qCh, q, msg).catch((e) => {
+      processMessage(qCh, q, msg).catch((e: unknown) => {
         console.error(`[${q}] unhandled:`, e);
         qCh.nack(msg, false, false);
       });
@@ -325,7 +325,7 @@ async function setupSystemListener(conn: any): Promise<void> {
   await ch.assertExchange('system', 'fanout', { durable: false });
   const { queue } = await ch.assertQueue('', { exclusive: true, autoDelete: true });
   await ch.bindQueue(queue, 'system', '');
-  ch.consume(queue, (msg) => {
+  ch.consume(queue, (msg: Message | null) => {
     if (msg === null) return;
     if (msg.content.toString() === 'reset') {
       for (const q of QUEUES) aggCounts[q] = 0;
@@ -356,8 +356,8 @@ async function shutdown() {
     flushAggCounts();
     await writeApi.close();
     await redis.quit();
-  } catch (e) {
-    console.error('[consumer] flush error on exit:', e);
+  } catch (e: unknown) {
+    console.error('[consumer] flush error on exit:', e instanceof Error ? e.message : e);
   }
   process.exit(0);
 }
