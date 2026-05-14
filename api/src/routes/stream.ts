@@ -1,3 +1,4 @@
+
 import { FastifyInstance } from 'fastify';
 import { queryApi } from '../influx';
 import http from 'http';
@@ -37,7 +38,7 @@ async function snapshot() {
 
   await new Promise<void>((resolve, reject) => {
     queryApi.queryRows(
-      `from(bucket: "${bucket}") |> range(start: -24h) |> filter(fn: (r) => r._measurement == "events" and r._field == "count") |> group(columns: ["type"]) |> sum()`,
+      `from(bucket: "${bucket}") |> range(start: -24h) |> filter(fn: (r) => r._measurement == "events_agg" and r._field == "count") |> group(columns: ["type"]) |> sum()`,
       {
         next(row, meta) {
           const obj = meta.toObject(row) as Row;
@@ -82,11 +83,13 @@ export default async function streamRoute(app: FastifyInstance) {
       try {
         const data = await snapshot();
         res.write(`data: ${JSON.stringify(data)}\n\n`);
-      } catch { /* InfluxDB may be briefly unavailable during stress test */ }
+      } catch (err) {
+        console.error('SSE Error:', err);
+      }
     };
 
     await push();
-    const dataInterval      = setInterval(push, 2000);
+    const dataInterval = setInterval(push, 2000);
     // Heartbeat keeps the nginx proxy_read_timeout (5s) from closing the connection
     const heartbeatInterval = setInterval(() => {
       if (!res.writableEnded) res.write(': heartbeat\n\n');

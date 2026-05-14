@@ -13,7 +13,7 @@ export default async function metricsRoute(app: FastifyInstance) {
     const query = `
       from(bucket: "${bucket}")
         |> range(start: -24h)
-        |> filter(fn: (r) => r._measurement == "events" and r._field == "count")
+        |> filter(fn: (r) => r._measurement == "events_agg" and r._field == "count")
         |> group(columns: ["type"])
         |> sum()
     `;
@@ -44,7 +44,7 @@ export default async function metricsRoute(app: FastifyInstance) {
     const bucket = process.env.INFLUXDB_BUCKET!;
     const query = `
       from(bucket: "${bucket}")
-        |> range(start: -1h)
+        |> range(start: -5m)
         |> filter(fn: (r) => r._measurement == "events" and r._field == "payload")
         |> sort(columns: ["_time"], desc: true)
         |> limit(n: 20)

@@ -26,9 +26,10 @@ const redis = new Redis(process.env.REDIS_URL ?? 'redis://redis:6379', {
 });
 redis.on('error', (e: Error) => console.error('[redis] error:', e.message));
 
-// ── Per-minute aggregator ─────────────────────────────────────────────────────
+// ── Real-time aggregator ─────────────────────────────────────────────────────
+const AGG_INTERVAL_MS = 2000;
 const aggCounts: Record<QueueName, number> = { impressions: 0, clicks: 0, conversions: 0 };
-let aggWindowStart = Math.floor(Date.now() / 60_000) * 60_000;
+let aggWindowStart = Math.floor(Date.now() / AGG_INTERVAL_MS) * AGG_INTERVAL_MS;
 
 function flushAggCounts(): void {
   const windowTs = new Date(aggWindowStart);
@@ -44,10 +45,10 @@ function flushAggCounts(): void {
       aggCounts[q] = 0;
     }
   }
-  aggWindowStart = Math.floor(Date.now() / 60_000) * 60_000;
+  aggWindowStart = Math.floor(Date.now() / AGG_INTERVAL_MS) * AGG_INTERVAL_MS;
 }
 
-setInterval(flushAggCounts, 60_000);
+setInterval(flushAggCounts, AGG_INTERVAL_MS);
 
 // ── InfluxDB ──────────────────────────────────────────────────────────────────
 const influx = new InfluxDB({
@@ -250,7 +251,7 @@ async function processMessage(ch: Channel, queue: QueueName, msg: Message): Prom
     writeApi.writePoint(buildPoint(queue, payload, now, resolvedAdvertiserId));
 
     aggCounts[queue]++;
-    if (Math.floor(now.getTime() / 60_000) * 60_000 !== aggWindowStart) {
+    if (Math.floor(now.getTime() / AGG_INTERVAL_MS) * AGG_INTERVAL_MS !== aggWindowStart) {
       flushAggCounts();
     }
 
@@ -329,7 +330,7 @@ async function setupSystemListener(conn: any): Promise<void> {
     if (msg === null) return;
     if (msg.content.toString() === 'reset') {
       for (const q of QUEUES) aggCounts[q] = 0;
-      aggWindowStart = Math.floor(Date.now() / 60_000) * 60_000;
+      aggWindowStart = Math.floor(Date.now() / AGG_INTERVAL_MS) * AGG_INTERVAL_MS;
       minioPending.length = 0;
       // Flush writeApi buffer so no stale points survive after InfluxDB delete
       writeApi.flush().catch(() => {});
